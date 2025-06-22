@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Arena Roguelite</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
         body {
@@ -64,6 +65,10 @@
         .stat-bar-fill {
             transition: width 0.3s ease-in-out;
         }
+        /* Volume Slider styling */
+        .slider-container.focused label {
+            color: #FBBF24;
+        }
     </style>
 </head>
 <body>
@@ -86,7 +91,7 @@
             <div class="w-64 mb-2">
                 <div class="flex justify-between text-sm font-bold">
                     <span>XP</span>
-                    <span id="xp-text">0 / 20</span>
+                    <span id="xp-text">0 / 40</span>
                 </div>
                 <div class="w-full stat-bar-bg rounded-full h-4">
                     <div id="xp-bar" class="bg-blue-500 h-4 rounded-full stat-bar-fill" style="width: 0%"></div>
@@ -105,6 +110,7 @@
             <p class="mb-6 text-gray-300">Survive the onslaught. Upgrade your arsenal. Become unstoppable.</p>
             <p class="mb-2 font-bold">Controls:</p>
             <p class="mb-4 text-gray-400">WASD/Arrows to Move | Gamepad Left Stick to Move | D-Pad/Stick to Navigate Menus | 'A' Button to Select</p>
+             <p class="text-xs text-gray-500 mb-4">Note: The game will attempt to enter fullscreen mode when started.</p>
             <button id="start-button" class="btn text-white font-bold py-3 px-8 rounded-lg text-2xl" data-index="0">Start Game</button>
         </div>
         
@@ -136,6 +142,10 @@
             <h1 class="text-5xl font-bold mb-8 text-yellow-400">PAUSED</h1>
             <div class="flex flex-col items-center space-y-4">
                 <button id="resume-button" class="btn text-white font-bold py-3 px-8 rounded-lg text-2xl w-64" data-index="0">Resume</button>
+                <div class="slider-container w-64 text-center" data-index="1">
+                     <label for="volume-slider" class="text-xl font-bold mb-2 block">Music Volume</label>
+                     <input type="range" id="volume-slider" min="-40" max="0" step="1" value="-20" class="w-full">
+                </div>
                 <button id="quit-button" class="btn text-white font-bold py-3 px-8 rounded-lg text-2xl w-64 bg-red-600 hover:bg-red-500" data-index="2">Quit to Main Menu</button>
             </div>
         </div>
@@ -166,6 +176,7 @@ const upgradeOptionsContainer = document.getElementById('upgrade-options');
 const upgradeTitle = document.getElementById('upgrade-title');
 const nextWaveTitle = document.getElementById('next-wave-title');
 const controllerStatus = document.getElementById('controller-status');
+const volumeSlider = document.getElementById('volume-slider');
 
 let animationFrameId;
 let gameRunning = false;
@@ -180,6 +191,47 @@ let wave = 1;
 let menuState = { screen: 'start', selectedIndex: 0, options: 1 };
 let lastControllerState = { buttons: [], axes: [] };
 let isLevelUpUpgrade = false;
+
+// --- AUDIO SYSTEM ---
+let musicSynth, musicLoop;
+let audioInitialized = false;
+
+function setupAudio() {
+    if (audioInitialized) return;
+    try {
+        musicSynth = new Tone.PolySynth(Tone.Synth, {
+            oscillator: { type: "fatsawtooth", count: 3, spread: 30 },
+            envelope: {
+                attack: 0.01,
+                decay: 0.1,
+                sustain: 0.5,
+                release: 0.4,
+                attackCurve: "exponential",
+            },
+        }).toDestination();
+        musicSynth.volume.value = -10;
+        
+        const musicPattern = [
+            {'time' : '0:0', 'note' : ['C2', 'G2', 'Eb3'], 'dur' : '4n'},
+            {'time' : '0:2', 'note' : ['Bb1', 'F2', 'D3'], 'dur' : '4n'},
+            {'time' : '1:0', 'note' : ['Ab1', 'Eb2', 'C3'], 'dur' : '2n'},
+            {'time' : '1:2', 'note' : ['G1', 'D2', 'Bb2'], 'dur' : '2n'}
+        ];
+        
+        musicLoop = new Tone.Part(((time, value) => {
+            musicSynth.triggerAttackRelease(value.note, value.dur, time);
+        }), musicPattern).start(0);
+        musicLoop.loop = true;
+        musicLoop.loopEnd = '2m';
+        
+        Tone.Destination.volume.value = -20;
+        volumeSlider.value = -10;
+        audioInitialized = true;
+    } catch (e) {
+        console.error("Could not set up audio:", e);
+    }
+}
+
 
 // --- GAME ASSETS & DATA ---
 const BASE_PLAYER_STATS = {
@@ -235,7 +287,7 @@ class Player extends GameObject {
     fire(weapon) {
         const closestEnemy = this.findClosestEnemy(weapon.range); if (!closestEnemy) return;
         const angle = Math.atan2(closestEnemy.y - this.y, closestEnemy.x - this.x);
-
+        
         if (weapon.pellets) {
             for (let i = 0; i < weapon.pellets; i++) {
                 const pelletAngle = angle + (Math.random() - 0.5) * weapon.spread;
@@ -263,7 +315,7 @@ class Player extends GameObject {
     }
     addXp(amount) { this.xp += amount; if (this.xp >= this.xpToNextLevel) this.levelUp(); }
     levelUp() {
-        this.xp -= this.xpToNextLevel; this.level++; this.xpToNextLevel = Math.floor(this.xpToNextLevel * 1.8);
+        this.xp -= this.xpToNextLevel; this.level++; this.xpToNextLevel = Math.floor(this.xpToNextLevel * 1.6);
         this.hp = this.maxHp;
         pauseGameForUpgrade(true);
     }
@@ -424,6 +476,14 @@ function handleControllerInput() {
 
         if (menuState.screen === 'pause') {
             if (navY !== 0) menuState.selectedIndex = (menuState.selectedIndex + navY + menuState.options) % menuState.options;
+
+            if (menuState.selectedIndex === 1) { // If slider is selected
+                if(navX !== 0) {
+                    const currentVal = parseFloat(volumeSlider.value);
+                    volumeSlider.value = Math.max(-40, Math.min(0, currentVal + navX * 2));
+                    volumeSlider.dispatchEvent(new Event('input'));
+                }
+            }
         } else {
              if (navX !== 0) menuState.selectedIndex = (menuState.selectedIndex + navX + menuState.options) % menuState.options;
         }
@@ -451,7 +511,33 @@ function updateHUD() {
 }
 
 // --- GAME FLOW & UI ---
-function startGame() {
+async function startGame() {
+    // Initialize audio on the first user interaction
+    if (!audioInitialized) {
+        try {
+            await Tone.start();
+            console.log("Audio context started.");
+            setupAudio();
+        } catch(e) {
+            console.error("Audio could not be initialized:", e);
+        }
+    }
+
+    if (Tone.Transport.state !== 'started') {
+        Tone.Transport.start();
+    }
+    
+    try {
+        const elem = document.documentElement;
+        if (elem.requestFullscreen) {
+            await elem.requestFullscreen();
+        } else if (elem.webkitRequestFullscreen) { /* Safari */
+            await elem.webkitRequestFullscreen();
+        }
+    } catch (err) {
+        console.log(`Fullscreen request failed: ${err.message}`);
+    }
+
     wave = 1; player = new Player(canvas.width / 2, canvas.height / 2);
     enemies = []; projectiles = []; resources = []; keys = {};
     startScreen.classList.add('hidden'); gameOverScreen.classList.add('hidden'); upgradeScreen.classList.add('hidden'); pauseScreen.classList.add('hidden');
@@ -461,6 +547,7 @@ function startGame() {
 }
 function endGame() {
     gameRunning = false;
+    if (Tone.Transport.state === 'started') Tone.Transport.stop();
     hud.classList.add('hidden'); gameOverScreen.classList.remove('hidden');
     finalWaveText.textContent = wave; menuState = { screen: 'game-over', selectedIndex: 0, options: 1 };
 }
@@ -483,7 +570,7 @@ function startNextWave() {
 }
 function pauseGameForUpgrade(isLevelUp) {
     gameRunning = false;
-    isLevelUpUpgrade = isLevelUp; 
+    isLevelUpUpgrade = isLevelUp;
     upgradeTitle.textContent = isLevelUp ? 'Level Up! Choose a Stat.' : 'Wave Complete! Choose an Upgrade.';
     const options = [];
     const availableUpgrades = UPGRADES.filter(u => {
@@ -513,7 +600,7 @@ function selectUpgrade(upgrade) {
     if (upgrade.type === 'weapon') player.weapons.push(JSON.parse(JSON.stringify(WEAPONS[upgrade.weapon])));
     else upgrade.apply(player);
     upgradeScreen.classList.add('hidden');
-    if (isLevelUpUpgrade) { gameRunning = true; menuState.screen = null; } 
+    if (isLevelUpUpgrade) { gameRunning = true; menuState.screen = null; }
     else { showNextWaveScreen(); }
 }
 function spawnEnemies() {
@@ -544,6 +631,7 @@ function togglePause() {
 }
 function quitToMenu() {
     gameRunning = false;
+    if(Tone.Transport.state === 'started') Tone.Transport.stop();
     hud.classList.add('hidden');
     pauseScreen.classList.add('hidden');
     startScreen.classList.remove('hidden');
@@ -573,6 +661,10 @@ function init() {
     document.getElementById('next-wave-button').addEventListener('click', startNextWave);
     document.getElementById('resume-button').addEventListener('click', togglePause);
     document.getElementById('quit-button').addEventListener('click', quitToMenu);
+    volumeSlider.addEventListener('input', (e) => {
+        if(Tone.Destination) Tone.Destination.volume.value = e.target.value;
+    });
+    
     menuState = { screen: 'start', selectedIndex: 0, options: 1 };
     gameLoop();
 }
