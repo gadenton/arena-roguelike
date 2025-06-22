@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arena Roguelite</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+        body {
+            font-family: 'Orbitron', sans-serif;
+            background-color: #111827; /* bg-gray-900 */
+            color: #F9FAFB; /* text-gray-50 */
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        canvas {
+            background-color: #1F2937; /* bg-gray-800 */
+            border: 2px solid #4B5563; /* border-gray-600 */
+            border-radius: 0.5rem;
+        }
+        .ui-modal {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(31, 41, 55, 0.95); /* bg-gray-800 with opacity */
+            border: 2px solid #4B5563;
+            border-radius: 1rem;
+            padding: 2rem;
+            max-width: 90%;
+            width: 800px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(5px);
+        }
+        .card {
+            background-color: #374151; /* bg-gray-700 */
+            border: 2px solid #4B5563; /* border-gray-600 */
+            transform: scale(1);
+            transition: all 0.2s ease-in-out;
+        }
+        .card:hover, .card.focused {
+            transform: scale(1.05) translateY(-5px);
+            border-color: #FBBF24; /* border-amber-400 */
+            box-shadow: 0 0 20px rgba(251, 191, 36, 0.6);
+        }
+        .btn {
+            background-color: #4F46E5; /* bg-indigo-600 */
+            transition: background-color 0.2s;
+            border: 2px solid transparent;
+        }
+        .btn:hover, .btn.focused {
+            background-color: #6366F1; /* bg-indigo-500 */
+            border-color: #FBBF24;
+            transform: scale(1.05);
+        }
+        .stat-bar-bg {
+            background-color: #4B5563; /* bg-gray-600 */
+        }
+        .stat-bar-fill {
+            transition: width 0.3s ease-in-out;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container" class="relative w-full h-full flex items-center justify-center">
+        <canvas id="gameCanvas"></canvas>
+
+        <!-- In-Game HUD -->
+        <div id="hud" class="absolute top-4 left-4 text-white text-lg p-4 bg-gray-900 bg-opacity-50 rounded-lg hidden">
+            <!-- HP Bar -->
+            <div class="w-64 mb-2">
+                <div class="flex justify-between text-sm font-bold">
+                    <span>HP</span>
+                    <span id="hp-text">100 / 100</span>
+                </div>
+                <div class="w-full stat-bar-bg rounded-full h-4">
+                    <div id="hp-bar" class="bg-red-500 h-4 rounded-full stat-bar-fill" style="width: 100%"></div>
+                </div>
+            </div>
+            <!-- XP Bar -->
+            <div class="w-64 mb-2">
+                <div class="flex justify-between text-sm font-bold">
+                    <span>XP</span>
+                    <span id="xp-text">0 / 20</span>
+                </div>
+                <div class="w-full stat-bar-bg rounded-full h-4">
+                    <div id="xp-bar" class="bg-blue-500 h-4 rounded-full stat-bar-fill" style="width: 0%"></div>
+                </div>
+            </div>
+            <p>Wave: <span id="wave-counter">1</span></p>
+            <p>Enemies: <span id="enemy-counter">0</span></p>
+            <p>Resources: <span id="resource-counter">0</span></p>
+            <p class="text-sm text-gray-400 mt-2">Press ESC or Start to Pause</p>
+            <div id="controller-status" class="mt-4 text-sm text-green-400 hidden">Controller Connected</div>
+        </div>
+
+        <!-- Start Screen -->
+        <div id="start-screen" class="ui-modal text-center">
+            <h1 class="text-5xl font-bold mb-4 text-blue-400">ARENA ROGUELITE</h1>
+            <p class="mb-6 text-gray-300">Survive the onslaught. Upgrade your arsenal. Become unstoppable.</p>
+            <p class="mb-2 font-bold">Controls:</p>
+            <p class="mb-4 text-gray-400">WASD/Arrows to Move | Gamepad Left Stick to Move | D-Pad/Stick to Navigate Menus | 'A' Button to Select</p>
+            <button id="start-button" class="btn text-white font-bold py-3 px-8 rounded-lg text-2xl" data-index="0">Start Game</button>
+        </div>
+        
+        <!-- Game Over Screen -->
+        <div id="game-over-screen" class="ui-modal text-center hidden">
+            <h1 class="text-5xl font-bold mb-4 text-red-500">GAME OVER</h1>
+            <p class="text-xl mb-2">You survived until Wave <span id="final-wave">1</span>.</p>
+            <p class="mb-6 text-gray-300">The void consumes all in the end.</p>
+            <button id="restart-button" class="btn text-white font-bold py-3 px-8 rounded-lg text-2xl" data-index="0">Play Again</button>
+        </div>
+
+        <!-- Upgrade Screen -->
+        <div id="upgrade-screen" class="ui-modal hidden">
+            <h2 id="upgrade-title" class="text-3xl font-bold mb-6 text-center text-yellow-400">Wave Complete! Choose an Upgrade.</h2>
+            <div id="upgrade-options" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <!-- Upgrade cards will be injected here -->
+            </div>
+        </div>
+        
+        <!-- Next Wave Screen -->
+        <div id="next-wave-screen" class="ui-modal text-center hidden">
+            <h1 id="next-wave-title" class="text-4xl font-bold mb-4 text-green-400">Ready for the Next Wave?</h1>
+            <p class="mb-6 text-gray-300">Prepare yourself. The next onslaught is about to begin.</p>
+            <button id="next-wave-button" class="btn text-white font-bold py-3 px-8 rounded-lg text-2xl" data-index="0">Start Wave</button>
+        </div>
+
+        <!-- Pause Menu -->
+        <div id="pause-screen" class="ui-modal text-center hidden">
+            <h1 class="text-5xl font-bold mb-8 text-yellow-400">PAUSED</h1>
+            <div class="flex flex-col items-center space-y-4">
+                <button id="resume-button" class="btn text-white font-bold py-3 px-8 rounded-lg text-2xl w-64" data-index="0">Resume</button>
+                <button id="quit-button" class="btn text-white font-bold py-3 px-8 rounded-lg text-2xl w-64 bg-red-600 hover:bg-red-500" data-index="2">Quit to Main Menu</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+// --- GAME SETUP ---
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+const gameContainer = document.getElementById('game-container');
+const hud = document.getElementById('hud');
+const startScreen = document.getElementById('start-screen');
+const gameOverScreen = document.getElementById('game-over-screen');
+const upgradeScreen = document.getElementById('upgrade-screen');
+const nextWaveScreen = document.getElementById('next-wave-screen');
+const pauseScreen = document.getElementById('pause-screen');
+
+const hpText = document.getElementById('hp-text');
+const hpBar = document.getElementById('hp-bar');
+const xpText = document.getElementById('xp-text');
+const xpBar = document.getElementById('xp-bar');
+const waveCounter = document.getElementById('wave-counter');
+const enemyCounter = document.getElementById('enemy-counter');
+const resourceCounter = document.getElementById('resource-counter');
+const finalWaveText = document.getElementById('final-wave');
+const upgradeOptionsContainer = document.getElementById('upgrade-options');
+const upgradeTitle = document.getElementById('upgrade-title');
+const nextWaveTitle = document.getElementById('next-wave-title');
+const controllerStatus = document.getElementById('controller-status');
+
+let animationFrameId;
+let gameRunning = false;
+
+// --- GAME STATE ---
+let player;
+let enemies = [];
+let projectiles = [];
+let resources = [];
+let keys = {};
+let wave = 1;
+let menuState = { screen: 'start', selectedIndex: 0, options: 1 };
+let lastControllerState = { buttons: [], axes: [] };
+let isLevelUpUpgrade = false;
+
+// --- GAME ASSETS & DATA ---
+const BASE_PLAYER_STATS = {
+    hp: 100, maxHp: 100, speed: 4, armor: 0, dodge: 0.05, xp: 0, level: 1, xpToNextLevel: 40,
+    resources: 0, luck: 1.0, critChance: 0.05, attackSpeed: 1.0, damagePercent: 1.0, lifeSteal: 0, hpRegen: 0.1,
+};
+const WEAPONS = {
+    pistol: { name: "Pistol", type: 'Ranged', damage: 10, fireRate: 0.5, projectileSpeed: 8, range: 400, cooldown: 0, color: '#9CA3AF', description: "A reliable sidearm." },
+    shotgun: { name: "Shotgun", type: 'Ranged', damage: 8, fireRate: 1, projectileSpeed: 10, range: 250, pellets: 5, spread: 0.4, cooldown: 0, color: '#F97316', description: "Devastating at close range." },
+    machineGun: { name: "Machine Gun", type: 'Ranged', damage: 5, fireRate: 0.1, projectileSpeed: 12, range: 500, spread: 0.15, cooldown: 0, color: '#FBBF24', description: "High fire rate, low accuracy." },
+    laserRifle: { name: "Laser Rifle", type: 'Ranged', damage: 25, fireRate: 1.5, projectileSpeed: 20, range: 700, piercing: 1, cooldown: 0, color: '#EC4899', description: "Fires piercing energy bolts." },
+};
+const UPGRADES = [
+    { type: 'stat', name: 'Heavy Plating', description: '+20 Max HP, +2 Armor', apply: (p) => { p.maxHp += 20; p.hp += 20; p.armor += 2; }, rarity: 1 },
+    { type: 'stat', name: 'Adrenaline Rush', description: '+15% Move Speed', apply: (p) => { p.speed *= 1.15; }, rarity: 1 },
+    { type: 'stat', name: 'Cybernetic Legs', description: '+10% Dodge Chance', apply: (p) => { p.dodge += 0.1; }, rarity: 2 },
+    { type: 'stat', name: 'Sharpened Rounds', description: '+20% Damage', apply: (p) => { p.damagePercent += 0.2; }, rarity: 2 },
+    { type: 'stat', name: 'Rapid Fire Module', description: '+25% Attack Speed', apply: (p) => { p.attackSpeed *= 1.25; }, rarity: 3 },
+    { type: 'stat', name: 'Vampiric Nanites', description: '+2% Life Steal', apply: (p) => { p.lifeSteal += 0.02; }, rarity: 3 },
+    { type: 'stat', name: 'Targeting Computer', description: '+10% Crit Chance', apply: (p) => { p.critChance += 0.1; }, rarity: 2 },
+    { type: 'stat', name: 'Emergency Kit', description: '+1 HP/s Regeneration', apply: (p) => { p.hpRegen += 1; }, rarity: 1 },
+    { type: 'weapon', name: 'Acquire Shotgun', weapon: 'shotgun', description: 'Gain a powerful Shotgun.', rarity: 2 },
+    { type: 'weapon', name: 'Acquire Machine Gun', weapon: 'machineGun', description: 'Gain a rapid-fire Machine Gun.', rarity: 2 },
+    { type: 'weapon', name: 'Acquire Laser Rifle', weapon: 'laserRifle', description: 'Gain a piercing Laser Rifle.', rarity: 3 },
+];
+const ENEMY_TYPES = {
+    swarmer: { color: '#EF4444', radius: 10, speed: 2, hp: 10, damage: 10, resource: 1, xp: 1 },
+    shooter: { color: '#3B82F6', radius: 12, speed: 1.5, hp: 20, damage: 15, resource: 2, xp: 2, range: 400, fireRate: 1 },
+    charger: { color: '#EAB308', radius: 15, speed: 2.5, hp: 40, damage: 25, resource: 3, xp: 3, chargeSpeed: 8, chargeCooldown: 3 },
+    elite: { color: '#A855F7', radius: 25, speed: 1.8, hp: 150, damage: 30, resource: 10, xp: 10 },
+};
+
+// --- CLASSES ---
+class GameObject {
+    constructor(x, y, radius, color) { this.x = x; this.y = y; this.radius = radius; this.color = color; }
+    draw(ctx) { ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2, false); ctx.fillStyle = this.color; ctx.fill(); }
+}
+class Player extends GameObject {
+    constructor(x, y) {
+        super(x, y, 15, '#10B981');
+        Object.assign(this, JSON.parse(JSON.stringify(BASE_PLAYER_STATS)));
+        this.weapons = [JSON.parse(JSON.stringify(WEAPONS.pistol))];
+        this.invincible = false; this.invincibilityTimer = 0;
+    }
+    update() {
+        if (this.invincible) { this.invincibilityTimer -= 1/60; if (this.invincibilityTimer <= 0) this.invincible = false; }
+        this.hp = Math.min(this.maxHp, this.hp + this.hpRegen * (1/60));
+        this.weapons.forEach(weapon => {
+            weapon.cooldown -= (1/60) * this.attackSpeed;
+            if (weapon.cooldown <= 0) { this.fire(weapon); weapon.cooldown = weapon.fireRate; }
+        });
+    }
+    fire(weapon) {
+        const closestEnemy = this.findClosestEnemy(weapon.range); if (!closestEnemy) return;
+        const angle = Math.atan2(closestEnemy.y - this.y, closestEnemy.x - this.x);
+
+        if (weapon.pellets) {
+            for (let i = 0; i < weapon.pellets; i++) {
+                const pelletAngle = angle + (Math.random() - 0.5) * weapon.spread;
+                projectiles.push(new Projectile(this.x, this.y, 4, weapon.color, pelletAngle, weapon.projectileSpeed, weapon.damage * this.damagePercent, weapon.range, weapon.piercing));
+            }
+        } else {
+            const bulletAngle = angle + (weapon.spread ? (Math.random() - 0.5) * weapon.spread : 0);
+            projectiles.push(new Projectile(this.x, this.y, 5, weapon.color, bulletAngle, weapon.projectileSpeed, weapon.damage * this.damagePercent, weapon.range, weapon.piercing));
+        }
+    }
+    findClosestEnemy(range) {
+        let closest = null, closestDist = Infinity;
+        for (const enemy of enemies) {
+            const dist = Math.hypot(this.x - enemy.x, this.y - enemy.y);
+            if (dist < closestDist && dist <= range) { closest = enemy; closestDist = dist; }
+        }
+        return closest;
+    }
+    takeDamage(amount) {
+        if (this.invincible) return; if (Math.random() < this.dodge) return;
+        const reducedDamage = amount * (1 - this.armor / (this.armor + 100));
+        this.hp -= reducedDamage;
+        if (this.hp <= 0) { this.hp = 0; endGame(); }
+        this.invincible = true; this.invincibilityTimer = 1;
+    }
+    addXp(amount) { this.xp += amount; if (this.xp >= this.xpToNextLevel) this.levelUp(); }
+    levelUp() {
+        this.xp -= this.xpToNextLevel; this.level++; this.xpToNextLevel = Math.floor(this.xpToNextLevel * 1.8);
+        this.hp = this.maxHp;
+        pauseGameForUpgrade(true);
+    }
+    draw(ctx) {
+        super.draw(ctx);
+        if (this.invincible) { ctx.beginPath(); ctx.arc(this.x, this.y, this.radius + 5, 0, Math.PI * 2); ctx.strokeStyle = 'rgba(96, 165, 250, 0.5)'; ctx.lineWidth = 3; ctx.stroke(); }
+    }
+}
+class Enemy extends GameObject {
+    constructor(x, y, type) {
+        super(x, y, type.radius, type.color);
+        this.type = type; this.hp = type.hp * (1 + (wave - 1) * 0.1);
+        this.speed = type.speed; this.damage = type.damage * (1 + (wave - 1) * 0.05);
+        this.cooldown = 0; this.isCharging = false; this.chargeTarget = {x:0, y:0};
+    }
+    update() {
+        switch(this.type) {
+            case ENEMY_TYPES.shooter:
+                this.cooldown -= 1/60; const dist = Math.hypot(player.x - this.x, player.y - this.y);
+                if (dist > this.type.range * 0.8) this.moveTowardsPlayer();
+                if (this.cooldown <= 0) { this.shoot(); this.cooldown = this.type.fireRate; }
+                break;
+            case ENEMY_TYPES.charger:
+                this.cooldown -= 1/60;
+                if(this.isCharging) {
+                    const angle = Math.atan2(this.chargeTarget.y - this.y, this.chargeTarget.x - this.x);
+                    this.x += Math.cos(angle) * this.type.chargeSpeed; this.y += Math.sin(angle) * this.type.chargeSpeed;
+                    if(Math.hypot(this.x - this.chargeTarget.x, this.y - this.chargeTarget.y) < 20) this.isCharging = false;
+                } else {
+                    this.moveTowardsPlayer();
+                    if(this.cooldown <= 0) { this.isCharging = true; this.chargeTarget.x = player.x; this.chargeTarget.y = player.y; this.cooldown = this.type.chargeCooldown; }
+                }
+                break;
+            default: this.moveTowardsPlayer(); break;
+        }
+    }
+    moveTowardsPlayer() { const angle = Math.atan2(player.y - this.y, player.x - this.x); this.x += Math.cos(angle) * this.speed; this.y += Math.sin(angle) * this.speed; }
+    shoot() { const angle = Math.atan2(player.y - this.y, player.x - this.x); projectiles.push(new Projectile(this.x, this.y, 6, '#FCA5A5', angle, 5, this.damage, this.type.range, 0, false)); }
+    takeDamage(amount, sourceAngle) {
+        if (Math.random() < player.critChance) amount *= 2;
+        this.hp -= amount;
+        if (Math.random() < player.lifeSteal) player.hp = Math.min(player.maxHp, player.hp + 1);
+        const knockbackPower = 5; this.x -= Math.cos(sourceAngle) * knockbackPower; this.y -= Math.sin(sourceAngle) * knockbackPower;
+    }
+    draw(ctx) {
+        super.draw(ctx);
+        if (this.isCharging) { ctx.beginPath(); ctx.arc(this.x, this.y, this.radius + 3, 0, Math.PI * 2); ctx.strokeStyle = 'rgba(255, 255, 0, 0.8)'; ctx.lineWidth = 2; ctx.stroke(); }
+    }
+}
+class Projectile extends GameObject {
+    constructor(x, y, radius, color, angle, speed, damage, range, piercing = 0, isPlayer = true) {
+        super(x, y, radius, color);
+        Object.assign(this, { angle, speed, damage, range, piercing, isPlayer });
+        this.distanceTraveled = 0; this.maxDistance = range; this.hitTargets = [];
+    }
+    update() { this.x += Math.cos(this.angle) * this.speed; this.y += Math.sin(this.angle) * this.speed; this.distanceTraveled += this.speed; }
+}
+class Resource extends GameObject {
+    constructor(x, y, value, xp) { super(x, y, 5, '#FDE047'); this.value = value; this.xp = xp; this.magnetSpeed = 0; }
+    update() {
+        const dist = Math.hypot(player.x - this.x, player.y - this.y);
+        if(dist < 80) { this.magnetSpeed += 0.5; const angle = Math.atan2(player.y - this.y, player.x - this.x); this.x += Math.cos(angle) * this.magnetSpeed; this.y += Math.sin(angle) * this.magnetSpeed; }
+    }
+}
+
+// --- GAME LOOP ---
+function gameLoop() {
+    handleControllerInput();
+    if (gameRunning) {
+        updateGame();
+        draw();
+    } else {
+        updateMenus();
+    }
+    animationFrameId = requestAnimationFrame(gameLoop);
+}
+function updateGame() {
+    let moveX = 0, moveY = 0;
+    if (keys['w'] || keys['ArrowUp']) moveY -= 1; if (keys['s'] || keys['ArrowDown']) moveY += 1;
+    if (keys['a'] || keys['ArrowLeft']) moveX -= 1; if (keys['d'] || keys['ArrowRight']) moveX += 1;
+    
+    const gamepad = navigator.getGamepads()[0];
+    if (gamepad) {
+        const stickX = gamepad.axes[0]; const stickY = gamepad.axes[1];
+        if (Math.abs(stickX) > gamepadHandler.deadzone) moveX = stickX;
+        if (Math.abs(stickY) > gamepadHandler.deadzone) moveY = stickY;
+    }
+
+    if(moveX !== 0 || moveY !== 0) { const magnitude = Math.sqrt(moveX * moveX + moveY * moveY); player.x += (moveX / magnitude) * player.speed; player.y += (moveY / magnitude) * player.speed; }
+    player.x = Math.max(player.radius, Math.min(canvas.width - player.radius, player.x));
+    player.y = Math.max(player.radius, Math.min(canvas.height - player.radius, player.y));
+    player.update();
+    projectiles.forEach((p, i) => { p.update(); if (p.distanceTraveled > p.maxDistance || p.x < 0 || p.x > canvas.width || p.y < 0 || p.y > canvas.height) projectiles.splice(i, 1); });
+    enemies.forEach(e => e.update());
+    resources.forEach(r => r.update());
+
+    // Collisions & Enemy Death
+    projectiles.forEach((p, pIndex) => {
+        if (!p.isPlayer) return;
+        enemies.forEach((e, eIndex) => {
+            if (p.hitTargets.includes(e)) return;
+            if (Math.hypot(p.x - e.x, p.y - e.y) - e.radius - p.radius < 1) {
+                e.takeDamage(p.damage, p.angle); p.hitTargets.push(e);
+                if(p.piercing < p.hitTargets.length) projectiles.splice(pIndex, 1);
+                if (e.hp <= 0) {
+                    player.addXp(e.type.xp);
+                    resources.push(new Resource(e.x, e.y, e.type.resource, e.type.xp));
+                    enemies.splice(eIndex, 1);
+                }
+            }
+        });
+    });
+    projectiles.forEach((p, pIndex) => { if (p.isPlayer) return; if (Math.hypot(p.x - player.x, p.y - player.y) - player.radius - p.radius < 1) { player.takeDamage(p.damage); projectiles.splice(pIndex, 1); } });
+    enemies.forEach(e => { if (Math.hypot(e.x - player.x, e.y - player.y) - player.radius - e.radius < 1) player.takeDamage(e.damage); });
+    resources.forEach((r, rIndex) => { if (Math.hypot(r.x - player.x, r.y - player.y) - player.radius - r.radius < 1) { player.resources += r.value; player.addXp(r.xp); resources.splice(rIndex, 1); } });
+
+    // WAVE END CONDITION
+    if (enemies.length === 0 && gameRunning) {
+        endWave();
+    }
+}
+function updateMenus() { 
+    updateMenuFocus(); 
+}
+function handleControllerInput() {
+    if (!navigator.getGamepads) return; 
+    const gamepad = navigator.getGamepads()[0]; 
+    if (!gamepad) return;
+
+    // Pause Button Check
+    const pausePressed = gamepad.buttons[9].pressed; 
+    const wasPausePressed = lastControllerState.buttons[9]?.pressed;
+    if (pausePressed && !wasPausePressed) {
+        togglePause();
+    }
+    
+    // Menu Navigation
+    if (!gameRunning) {
+        const confirmPressed = gamepad.buttons[0].pressed; const wasConfirmPressed = lastControllerState.buttons[0]?.pressed;
+        if (confirmPressed && !wasConfirmPressed) { const selector = `#${menuState.screen}-screen [data-index="${menuState.selectedIndex}"]`; const element = document.querySelector(selector); if (element) element.click(); }
+        
+        const dpadRight = gamepad.buttons[15]?.pressed; const dpadLeft = gamepad.buttons[14]?.pressed;
+        const dpadUp = gamepad.buttons[12]?.pressed; const dpadDown = gamepad.buttons[13]?.pressed;
+        const stickX = gamepad.axes[0]; const stickY = gamepad.axes[1];
+
+        const wasDpadRight = lastControllerState.buttons[15]?.pressed; const wasDpadLeft = lastControllerState.buttons[14]?.pressed;
+        const wasDpadUp = lastControllerState.buttons[12]?.pressed; const wasDpadDown = lastControllerState.buttons[13]?.pressed;
+        const wasStickRight = lastControllerState.axes[0] > gamepadHandler.deadzone; const wasStickLeft = lastControllerState.axes[0] < -gamepadHandler.deadzone;
+        const wasStickUp = lastControllerState.axes[1] < -gamepadHandler.deadzone; const wasStickDown = lastControllerState.axes[1] > gamepadHandler.deadzone;
+        
+        let navY = 0;
+        if ((dpadDown && !wasDpadDown) || (stickY > gamepadHandler.deadzone && !wasStickDown)) navY = 1;
+        if ((dpadUp && !wasDpadUp) || (stickY < -gamepadHandler.deadzone && !wasStickUp)) navY = -1;
+        
+        let navX = 0;
+        if ((dpadRight && !wasDpadRight) || (stickX > gamepadHandler.deadzone && !wasStickRight)) navX = 1;
+        if ((dpadLeft && !wasDpadLeft) || (stickX < -gamepadHandler.deadzone && !wasStickLeft)) navX = -1;
+
+        if (menuState.screen === 'pause') {
+            if (navY !== 0) menuState.selectedIndex = (menuState.selectedIndex + navY + menuState.options) % menuState.options;
+        } else {
+             if (navX !== 0) menuState.selectedIndex = (menuState.selectedIndex + navX + menuState.options) % menuState.options;
+        }
+    }
+    
+    lastControllerState.buttons = gamepad.buttons.map(b => ({pressed: b.pressed}));
+    lastControllerState.axes = [...gamepad.axes];
+}
+function updateMenuFocus() {
+    const screenId = `${menuState.screen}-screen`; const screenElement = document.getElementById(screenId); if (!screenElement) return;
+    screenElement.querySelectorAll('.focused').forEach(el => el.classList.remove('focused'));
+    const selector = `[data-index="${menuState.selectedIndex}"]`; const focusedElement = screenElement.querySelector(selector);
+    if (focusedElement) focusedElement.classList.add('focused');
+}
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    resources.forEach(r => r.draw(ctx)); projectiles.forEach(p => p.draw(ctx));
+    player.draw(ctx); enemies.forEach(e => e.draw(ctx));
+    updateHUD();
+}
+function updateHUD() {
+    hpText.textContent = `${Math.ceil(player.hp)} / ${player.maxHp}`; hpBar.style.width = `${(player.hp / player.maxHp) * 100}%`;
+    xpText.textContent = `${player.xp} / ${player.xpToNextLevel}`; xpBar.style.width = `${(player.xp / player.xpToNextLevel) * 100}%`;
+    waveCounter.textContent = wave; enemyCounter.textContent = enemies.length; resourceCounter.textContent = player.resources;
+}
+
+// --- GAME FLOW & UI ---
+function startGame() {
+    wave = 1; player = new Player(canvas.width / 2, canvas.height / 2);
+    enemies = []; projectiles = []; resources = []; keys = {};
+    startScreen.classList.add('hidden'); gameOverScreen.classList.add('hidden'); upgradeScreen.classList.add('hidden'); pauseScreen.classList.add('hidden');
+    hud.classList.remove('hidden');
+    startWave();
+    if (!animationFrameId) gameLoop();
+}
+function endGame() {
+    gameRunning = false;
+    hud.classList.add('hidden'); gameOverScreen.classList.remove('hidden');
+    finalWaveText.textContent = wave; menuState = { screen: 'game-over', selectedIndex: 0, options: 1 };
+}
+function startWave() { gameRunning = true; menuState.screen = null; spawnEnemies(); }
+function endWave() {
+    gameRunning = false;
+    player.resources += 50 * wave;
+    pauseGameForUpgrade(false);
+}
+function showNextWaveScreen() {
+    upgradeScreen.classList.add('hidden');
+    nextWaveScreen.classList.remove('hidden');
+    nextWaveTitle.textContent = `Ready for Wave ${wave + 1}?`;
+    menuState = { screen: 'next-wave', selectedIndex: 0, options: 1 };
+}
+function startNextWave() {
+    nextWaveScreen.classList.add('hidden');
+    wave++;
+    startWave();
+}
+function pauseGameForUpgrade(isLevelUp) {
+    gameRunning = false;
+    isLevelUpUpgrade = isLevelUp; 
+    upgradeTitle.textContent = isLevelUp ? 'Level Up! Choose a Stat.' : 'Wave Complete! Choose an Upgrade.';
+    const options = [];
+    const availableUpgrades = UPGRADES.filter(u => {
+        if(isLevelUp) return u.type === 'stat';
+        if(u.type === 'weapon') return !player.weapons.some(w => w.name === WEAPONS[u.weapon].name);
+        return true;
+    });
+    while (options.length < 3 && availableUpgrades.length > 0) {
+        const randomIndex = Math.floor(Math.random() * availableUpgrades.length);
+        options.push(availableUpgrades[randomIndex]);
+        availableUpgrades.splice(randomIndex, 1);
+    }
+    populateUpgradeOptions(options);
+    menuState = { screen: 'upgrade', selectedIndex: 0, options: options.length };
+    upgradeScreen.classList.remove('hidden');
+}
+function populateUpgradeOptions(options) {
+    upgradeOptionsContainer.innerHTML = '';
+    options.forEach((upgrade, index) => {
+        const card = document.createElement('div'); card.className = 'card p-4 rounded-lg cursor-pointer text-center';
+        card.dataset.index = index;
+        card.innerHTML = `<h3 class="text-xl font-bold mb-2">${upgrade.name}</h3><p class="text-gray-300">${upgrade.description}</p>`;
+        card.addEventListener('click', () => selectUpgrade(upgrade)); upgradeOptionsContainer.appendChild(card);
+    });
+}
+function selectUpgrade(upgrade) {
+    if (upgrade.type === 'weapon') player.weapons.push(JSON.parse(JSON.stringify(WEAPONS[upgrade.weapon])));
+    else upgrade.apply(player);
+    upgradeScreen.classList.add('hidden');
+    if (isLevelUpUpgrade) { gameRunning = true; menuState.screen = null; } 
+    else { showNextWaveScreen(); }
+}
+function spawnEnemies() {
+    const spawnCount = 10 + wave * 3;
+    for (let i = 0; i < spawnCount; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = Math.max(canvas.width, canvas.height) * 0.7;
+        const x = canvas.width / 2 + Math.cos(angle) * dist;
+        const y = canvas.height / 2 + Math.sin(angle) * dist;
+
+        let enemyType = ENEMY_TYPES.swarmer;
+        if (wave > 2 && Math.random() < 0.3) enemyType = ENEMY_TYPES.shooter;
+        if (wave > 5 && Math.random() < 0.2) enemyType = ENEMY_TYPES.charger;
+        if (wave > 8 && Math.random() < 0.1) enemyType = ENEMY_TYPES.elite;
+        enemies.push(new Enemy(x, y, enemyType));
+    }
+}
+function togglePause() {
+    if (menuState.screen === 'pause') { // Unpausing
+        gameRunning = true;
+        pauseScreen.classList.add('hidden');
+        menuState.screen = null;
+    } else if (gameRunning) { // Pausing
+        gameRunning = false;
+        pauseScreen.classList.remove('hidden');
+        menuState = { screen: 'pause', selectedIndex: 0, options: 3 };
+    }
+}
+function quitToMenu() {
+    gameRunning = false;
+    hud.classList.add('hidden');
+    pauseScreen.classList.add('hidden');
+    startScreen.classList.remove('hidden');
+    menuState = { screen: 'start', selectedIndex: 0, options: 1 };
+}
+
+// --- INPUT HANDLING ---
+window.addEventListener('keydown', (e) => {
+    keys[e.key.toLowerCase()] = true;
+    if(e.key === 'Escape') togglePause();
+});
+window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+const gamepadHandler = {
+    deadzone: 0.5,
+    connect: function(e) { console.log("Controller connected:", e.gamepad); controllerStatus.classList.remove('hidden'); },
+    disconnect: function(e) { console.log("Controller disconnected:", e.gamepad); controllerStatus.classList.add('hidden'); },
+};
+window.addEventListener("gamepadconnected", (e) => gamepadHandler.connect(e));
+window.addEventListener("gamepaddisconnected", (e) => gamepadHandler.disconnect(e));
+
+// --- INITIALIZATION ---
+function init() {
+    const size = Math.min(gameContainer.clientWidth, gameContainer.clientHeight) * 0.95;
+    canvas.width = size; canvas.height = size;
+    document.getElementById('start-button').addEventListener('click', startGame);
+    document.getElementById('restart-button').addEventListener('click', startGame);
+    document.getElementById('next-wave-button').addEventListener('click', startNextWave);
+    document.getElementById('resume-button').addEventListener('click', togglePause);
+    document.getElementById('quit-button').addEventListener('click', quitToMenu);
+    menuState = { screen: 'start', selectedIndex: 0, options: 1 };
+    gameLoop();
+}
+window.addEventListener('resize', init);
+init();
+</script>
+</body>
+</html>
