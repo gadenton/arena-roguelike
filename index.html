@@ -180,6 +180,7 @@ const volumeSlider = document.getElementById('volume-slider');
 
 let animationFrameId;
 let gameRunning = false;
+let lastTime = 0; // For delta time calculation
 
 // --- GAME STATE ---
 let player;
@@ -235,14 +236,14 @@ function setupAudio() {
 
 // --- GAME ASSETS & DATA ---
 const BASE_PLAYER_STATS = {
-    hp: 100, maxHp: 100, speed: 4, armor: 0, dodge: 0.05, xp: 0, level: 1, xpToNextLevel: 40,
+    hp: 100, maxHp: 100, speed: 250, armor: 0, dodge: 0.05, xp: 0, level: 1, xpToNextLevel: 40,
     resources: 0, luck: 1.0, critChance: 0.05, attackSpeed: 1.0, damagePercent: 1.0, lifeSteal: 0, hpRegen: 0.1,
 };
 const WEAPONS = {
-    pistol: { name: "Pistol", type: 'Ranged', damage: 10, fireRate: 0.5, projectileSpeed: 8, range: 400, cooldown: 0, color: '#9CA3AF', description: "A reliable sidearm." },
-    shotgun: { name: "Shotgun", type: 'Ranged', damage: 8, fireRate: 1, projectileSpeed: 10, range: 250, pellets: 5, spread: 0.4, cooldown: 0, color: '#F97316', description: "Devastating at close range." },
-    machineGun: { name: "Machine Gun", type: 'Ranged', damage: 5, fireRate: 0.1, projectileSpeed: 12, range: 500, spread: 0.15, cooldown: 0, color: '#FBBF24', description: "High fire rate, low accuracy." },
-    laserRifle: { name: "Laser Rifle", type: 'Ranged', damage: 25, fireRate: 1.5, projectileSpeed: 20, range: 700, piercing: 1, cooldown: 0, color: '#EC4899', description: "Fires piercing energy bolts." },
+    pistol: { name: "Pistol", type: 'Ranged', damage: 10, fireRate: 2, projectileSpeed: 500, range: 400, cooldown: 0, color: '#9CA3AF', description: "A reliable sidearm." },
+    shotgun: { name: "Shotgun", type: 'Ranged', damage: 8, fireRate: 1, projectileSpeed: 600, range: 250, pellets: 5, spread: 0.4, cooldown: 0, color: '#F97316', description: "Devastating at close range." },
+    machineGun: { name: "Machine Gun", type: 'Ranged', damage: 5, fireRate: 10, projectileSpeed: 700, range: 500, spread: 0.15, cooldown: 0, color: '#FBBF24', description: "High fire rate, low accuracy." },
+    laserRifle: { name: "Laser Rifle", type: 'Ranged', damage: 25, fireRate: 0.66, projectileSpeed: 1000, range: 700, piercing: 1, cooldown: 0, color: '#EC4899', description: "Fires piercing energy bolts." },
 };
 const UPGRADES = [
     { type: 'stat', name: 'Heavy Plating', description: '+20 Max HP, +2 Armor', apply: (p) => { p.maxHp += 20; p.hp += 20; p.armor += 2; }, rarity: 1 },
@@ -258,10 +259,10 @@ const UPGRADES = [
     { type: 'weapon', name: 'Acquire Laser Rifle', weapon: 'laserRifle', description: 'Gain a piercing Laser Rifle.', rarity: 3 },
 ];
 const ENEMY_TYPES = {
-    swarmer: { color: '#EF4444', radius: 10, speed: 2, hp: 10, damage: 10, resource: 1, xp: 1 },
-    shooter: { color: '#3B82F6', radius: 12, speed: 1.5, hp: 20, damage: 15, resource: 2, xp: 2, range: 400, fireRate: 1 },
-    charger: { color: '#EAB308', radius: 15, speed: 2.5, hp: 40, damage: 25, resource: 3, xp: 3, chargeSpeed: 8, chargeCooldown: 3 },
-    elite: { color: '#A855F7', radius: 25, speed: 1.8, hp: 150, damage: 30, resource: 10, xp: 10 },
+    swarmer: { color: '#EF4444', radius: 10, speed: 120, hp: 10, damage: 10, resource: 1, xp: 1 },
+    shooter: { color: '#3B82F6', radius: 12, speed: 90, hp: 20, damage: 15, resource: 2, xp: 2, range: 400, fireRate: 1 },
+    charger: { color: '#EAB308', radius: 15, speed: 150, hp: 40, damage: 25, resource: 3, xp: 3, chargeSpeed: 400, chargeCooldown: 3 },
+    elite: { color: '#A855F7', radius: 25, speed: 110, hp: 150, damage: 30, resource: 10, xp: 10 },
 };
 
 // --- CLASSES ---
@@ -276,12 +277,15 @@ class Player extends GameObject {
         this.weapons = [JSON.parse(JSON.stringify(WEAPONS.pistol))];
         this.invincible = false; this.invincibilityTimer = 0;
     }
-    update() {
-        if (this.invincible) { this.invincibilityTimer -= 1/60; if (this.invincibilityTimer <= 0) this.invincible = false; }
-        this.hp = Math.min(this.maxHp, this.hp + this.hpRegen * (1/60));
+    update(deltaTime) {
+        if (this.invincible) { this.invincibilityTimer -= deltaTime; if (this.invincibilityTimer <= 0) this.invincible = false; }
+        this.hp = Math.min(this.maxHp, this.hp + this.hpRegen * deltaTime);
         this.weapons.forEach(weapon => {
-            weapon.cooldown -= (1/60) * this.attackSpeed;
-            if (weapon.cooldown <= 0) { this.fire(weapon); weapon.cooldown = weapon.fireRate; }
+            weapon.cooldown -= deltaTime;
+            if (weapon.cooldown <= 0) {
+                this.fire(weapon);
+                weapon.cooldown = 1 / (weapon.fireRate * this.attackSpeed);
+            }
         });
     }
     fire(weapon) {
@@ -331,29 +335,31 @@ class Enemy extends GameObject {
         this.speed = type.speed; this.damage = type.damage * (1 + (wave - 1) * 0.05);
         this.cooldown = 0; this.isCharging = false; this.chargeTarget = {x:0, y:0};
     }
-    update() {
+    update(deltaTime) {
         switch(this.type) {
             case ENEMY_TYPES.shooter:
-                this.cooldown -= 1/60; const dist = Math.hypot(player.x - this.x, player.y - this.y);
-                if (dist > this.type.range * 0.8) this.moveTowardsPlayer();
-                if (this.cooldown <= 0) { this.shoot(); this.cooldown = this.type.fireRate; }
+                this.cooldown -= deltaTime;
+                const dist = Math.hypot(player.x - this.x, player.y - this.y);
+                if (dist > this.type.range * 0.8) this.moveTowardsPlayer(deltaTime);
+                if (this.cooldown <= 0) { this.shoot(); this.cooldown = 1 / this.type.fireRate; }
                 break;
             case ENEMY_TYPES.charger:
-                this.cooldown -= 1/60;
+                this.cooldown -= deltaTime;
                 if(this.isCharging) {
                     const angle = Math.atan2(this.chargeTarget.y - this.y, this.chargeTarget.x - this.x);
-                    this.x += Math.cos(angle) * this.type.chargeSpeed; this.y += Math.sin(angle) * this.type.chargeSpeed;
+                    this.x += Math.cos(angle) * this.type.chargeSpeed * deltaTime;
+                    this.y += Math.sin(angle) * this.type.chargeSpeed * deltaTime;
                     if(Math.hypot(this.x - this.chargeTarget.x, this.y - this.chargeTarget.y) < 20) this.isCharging = false;
                 } else {
-                    this.moveTowardsPlayer();
+                    this.moveTowardsPlayer(deltaTime);
                     if(this.cooldown <= 0) { this.isCharging = true; this.chargeTarget.x = player.x; this.chargeTarget.y = player.y; this.cooldown = this.type.chargeCooldown; }
                 }
                 break;
-            default: this.moveTowardsPlayer(); break;
+            default: this.moveTowardsPlayer(deltaTime); break;
         }
     }
-    moveTowardsPlayer() { const angle = Math.atan2(player.y - this.y, player.x - this.x); this.x += Math.cos(angle) * this.speed; this.y += Math.sin(angle) * this.speed; }
-    shoot() { const angle = Math.atan2(player.y - this.y, player.x - this.x); projectiles.push(new Projectile(this.x, this.y, 6, '#FCA5A5', angle, 5, this.damage, this.type.range, 0, false)); }
+    moveTowardsPlayer(deltaTime) { const angle = Math.atan2(player.y - this.y, player.x - this.x); this.x += Math.cos(angle) * this.speed * deltaTime; this.y += Math.sin(angle) * this.speed * deltaTime; }
+    shoot() { const angle = Math.atan2(player.y - this.y, player.x - this.x); projectiles.push(new Projectile(this.x, this.y, 6, '#FCA5A5', angle, 400, this.damage, this.type.range, 0, false)); }
     takeDamage(amount, sourceAngle) {
         if (Math.random() < player.critChance) amount *= 2;
         this.hp -= amount;
@@ -371,28 +377,32 @@ class Projectile extends GameObject {
         Object.assign(this, { angle, speed, damage, range, piercing, isPlayer });
         this.distanceTraveled = 0; this.maxDistance = range; this.hitTargets = [];
     }
-    update() { this.x += Math.cos(this.angle) * this.speed; this.y += Math.sin(this.angle) * this.speed; this.distanceTraveled += this.speed; }
+    update(deltaTime) { this.x += Math.cos(this.angle) * this.speed * deltaTime; this.y += Math.sin(this.angle) * this.speed * deltaTime; this.distanceTraveled += this.speed * deltaTime; }
 }
 class Resource extends GameObject {
     constructor(x, y, value, xp) { super(x, y, 5, '#FDE047'); this.value = value; this.xp = xp; this.magnetSpeed = 0; }
-    update() {
+    update(deltaTime) {
         const dist = Math.hypot(player.x - this.x, player.y - this.y);
-        if(dist < 80) { this.magnetSpeed += 0.5; const angle = Math.atan2(player.y - this.y, player.x - this.x); this.x += Math.cos(angle) * this.magnetSpeed; this.y += Math.sin(angle) * this.magnetSpeed; }
+        if(dist < 80) { this.magnetSpeed += 300 * deltaTime; const angle = Math.atan2(player.y - this.y, player.x - this.x); this.x += Math.cos(angle) * this.magnetSpeed * deltaTime; this.y += Math.sin(angle) * this.magnetSpeed * deltaTime; }
     }
 }
 
 // --- GAME LOOP ---
-function gameLoop() {
+function gameLoop(timestamp) {
+    if (!lastTime) lastTime = timestamp;
+    const deltaTime = (timestamp - lastTime) / 1000;
+    lastTime = timestamp;
+    
     handleControllerInput();
     if (gameRunning) {
-        updateGame();
+        updateGame(deltaTime);
         draw();
     } else {
         updateMenus();
     }
     animationFrameId = requestAnimationFrame(gameLoop);
 }
-function updateGame() {
+function updateGame(deltaTime) {
     let moveX = 0, moveY = 0;
     if (keys['w'] || keys['ArrowUp']) moveY -= 1; if (keys['s'] || keys['ArrowDown']) moveY += 1;
     if (keys['a'] || keys['ArrowLeft']) moveX -= 1; if (keys['d'] || keys['ArrowRight']) moveX += 1;
@@ -404,13 +414,13 @@ function updateGame() {
         if (Math.abs(stickY) > gamepadHandler.deadzone) moveY = stickY;
     }
 
-    if(moveX !== 0 || moveY !== 0) { const magnitude = Math.sqrt(moveX * moveX + moveY * moveY); player.x += (moveX / magnitude) * player.speed; player.y += (moveY / magnitude) * player.speed; }
+    if(moveX !== 0 || moveY !== 0) { const magnitude = Math.sqrt(moveX * moveX + moveY * moveY); player.x += (moveX / magnitude) * player.speed * deltaTime; player.y += (moveY / magnitude) * player.speed * deltaTime; }
     player.x = Math.max(player.radius, Math.min(canvas.width - player.radius, player.x));
     player.y = Math.max(player.radius, Math.min(canvas.height - player.radius, player.y));
-    player.update();
-    projectiles.forEach((p, i) => { p.update(); if (p.distanceTraveled > p.maxDistance || p.x < 0 || p.x > canvas.width || p.y < 0 || p.y > canvas.height) projectiles.splice(i, 1); });
-    enemies.forEach(e => e.update());
-    resources.forEach(r => r.update());
+    player.update(deltaTime);
+    projectiles.forEach((p, i) => { p.update(deltaTime); if (p.distanceTraveled > p.maxDistance || p.x < 0 || p.x > canvas.width || p.y < 0 || p.y > canvas.height) projectiles.splice(i, 1); });
+    enemies.forEach(e => e.update(deltaTime));
+    resources.forEach(r => r.update(deltaTime));
 
     // Collisions & Enemy Death
     projectiles.forEach((p, pIndex) => {
@@ -512,7 +522,6 @@ function updateHUD() {
 
 // --- GAME FLOW & UI ---
 async function startGame() {
-    // Initialize audio on the first user interaction
     if (!audioInitialized) {
         try {
             await Tone.start();
@@ -543,7 +552,7 @@ async function startGame() {
     startScreen.classList.add('hidden'); gameOverScreen.classList.add('hidden'); upgradeScreen.classList.add('hidden'); pauseScreen.classList.add('hidden');
     hud.classList.remove('hidden');
     startWave();
-    if (!animationFrameId) gameLoop();
+    if (!animationFrameId) gameLoop(0);
 }
 function endGame() {
     gameRunning = false;
@@ -666,7 +675,7 @@ function init() {
     });
     
     menuState = { screen: 'start', selectedIndex: 0, options: 1 };
-    gameLoop();
+    gameLoop(0);
 }
 window.addEventListener('resize', init);
 init();
